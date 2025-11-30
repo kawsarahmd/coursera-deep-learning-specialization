@@ -5,7 +5,7 @@ import random
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-from tensorflow.keras import backend as K
+import torch
 
 from functools import reduce
 
@@ -44,11 +44,19 @@ def read_anchors(anchors_path):
 
 def scale_boxes(boxes, image_shape):
     """ Scales the predicted boxes in order to be drawable on the image"""
-    height = image_shape[0] * 1.0
-    width = image_shape[1] * 1.0
-    image_dims = K.stack([height, width, height, width])
-    image_dims = K.reshape(image_dims, [1, 4])
-    boxes = boxes * image_dims
+    height = float(image_shape[0])
+    width = float(image_shape[1])
+
+    if isinstance(boxes, torch.Tensor):
+        image_dims = torch.tensor([height, width, height, width], dtype=boxes.dtype, device=boxes.device)
+        image_dims = image_dims.reshape(1, 4)
+        boxes = boxes * image_dims
+    else:
+        # Handle numpy arrays
+        image_dims = np.array([height, width, height, width], dtype=np.float32)
+        image_dims = image_dims.reshape(1, 4)
+        boxes = boxes * image_dims
+
     return boxes
 
 def get_colors_for_classes(num_classes):

@@ -2,8 +2,9 @@ import math
 import numpy as np
 import h5py
 import matplotlib.pyplot as plt
-import tensorflow as tf
-from tensorflow.python.framework import ops
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 def load_dataset():
@@ -25,6 +26,47 @@ def load_dataset():
     test_set_y_orig = test_set_y_orig.reshape((1, test_set_y_orig.shape[0]))
 
     return train_set_x_orig, train_set_y_orig, test_set_x_orig, test_set_y_orig, classes
+
+
+def load_happy_dataset():
+    """
+    Loads the Happy House dataset
+
+    Returns:
+    X_train_orig -- training set features
+    Y_train_orig -- training set labels
+    X_test_orig -- test set features
+    Y_test_orig -- test set labels
+    classes -- list of classes
+    """
+    train_dataset = h5py.File('datasets/train_happy.h5', "r")
+    train_set_x_orig = np.array(train_dataset["train_set_x"][:])
+    train_set_y_orig = np.array(train_dataset["train_set_y"][:])
+
+    test_dataset = h5py.File('datasets/test_happy.h5', "r")
+    test_set_x_orig = np.array(test_dataset["test_set_x"][:])
+    test_set_y_orig = np.array(test_dataset["test_set_y"][:])
+
+    classes = np.array(test_dataset["list_classes"][:])
+
+    train_set_y_orig = train_set_y_orig.reshape((1, train_set_y_orig.shape[0]))
+    test_set_y_orig = test_set_y_orig.reshape((1, test_set_y_orig.shape[0]))
+
+    return train_set_x_orig, train_set_y_orig, test_set_x_orig, test_set_y_orig, classes
+
+
+def load_signs_dataset():
+    """
+    Loads the SIGNS dataset
+
+    Returns:
+    X_train_orig -- training set features
+    Y_train_orig -- training set labels
+    X_test_orig -- test set features
+    Y_test_orig -- test set labels
+    classes -- list of classes
+    """
+    return load_dataset()
 
 
 def random_mini_batches(X, Y, mini_batch_size=64, seed=0):
@@ -83,7 +125,7 @@ def forward_propagation_for_predict(X, parameters):
     Implements the forward propagation for the model: LINEAR -> RELU -> LINEAR -> RELU -> LINEAR -> SOFTMAX
 
     Arguments:
-    X -- input dataset placeholder, of shape (input size, number of examples)
+    X -- input dataset, of shape (input size, number of examples)
     parameters -- python dictionary containing your parameters "W1", "b1", "W2", "b2", "W3", "b3"
                   the shapes are given in initialize_parameters
 
@@ -98,41 +140,48 @@ def forward_propagation_for_predict(X, parameters):
     b2 = parameters['b2']
     W3 = parameters['W3']
     b3 = parameters['b3']
-    # Numpy Equivalents:
-    # Z1 = np.dot(W1, X) + b1
-    Z1 = tf.add(tf.matmul(W1, X), b1)
-    A1 = tf.nn.relu(Z1)                                    # A1 = relu(Z1)
-    # Z2 = np.dot(W2, a1) + b2
-    Z2 = tf.add(tf.matmul(W2, A1), b2)
-    A2 = tf.nn.relu(Z2)                                    # A2 = relu(Z2)
-    # Z3 = np.dot(W3,Z2) + b3
-    Z3 = tf.add(tf.matmul(W3, A2), b3)
+
+    # Convert to tensors if they're numpy arrays
+    if isinstance(W1, np.ndarray):
+        W1 = torch.from_numpy(W1).float()
+    if isinstance(b1, np.ndarray):
+        b1 = torch.from_numpy(b1).float()
+    if isinstance(W2, np.ndarray):
+        W2 = torch.from_numpy(W2).float()
+    if isinstance(b2, np.ndarray):
+        b2 = torch.from_numpy(b2).float()
+    if isinstance(W3, np.ndarray):
+        W3 = torch.from_numpy(W3).float()
+    if isinstance(b3, np.ndarray):
+        b3 = torch.from_numpy(b3).float()
+    if isinstance(X, np.ndarray):
+        X = torch.from_numpy(X).float()
+
+    # PyTorch equivalents
+    Z1 = torch.matmul(W1, X) + b1
+    A1 = F.relu(Z1)                                    # A1 = relu(Z1)
+    Z2 = torch.matmul(W2, A1) + b2
+    A2 = F.relu(Z2)                                    # A2 = relu(Z2)
+    Z3 = torch.matmul(W3, A2) + b3
 
     return Z3
 
 
 def predict(X, parameters):
+    """
+    Makes predictions using trained parameters
 
-    W1 = tf.convert_to_tensor(parameters["W1"])
-    b1 = tf.convert_to_tensor(parameters["b1"])
-    W2 = tf.convert_to_tensor(parameters["W2"])
-    b2 = tf.convert_to_tensor(parameters["b2"])
-    W3 = tf.convert_to_tensor(parameters["W3"])
-    b3 = tf.convert_to_tensor(parameters["b3"])
+    Arguments:
+    X -- input data
+    parameters -- trained model parameters
 
-    params = {"W1": W1,
-              "b1": b1,
-              "W2": W2,
-              "b2": b2,
-              "W3": W3,
-              "b3": b3}
+    Returns:
+    prediction -- predicted class
+    """
+    # Forward propagation
+    z3 = forward_propagation_for_predict(X, parameters)
 
-    x = tf.placeholder("float", [12288, 1])
-
-    z3 = forward_propagation_for_predict(x, params)
-    p = tf.argmax(z3)
-
-    sess = tf.Session()
-    prediction = sess.run(p, feed_dict={x: X})
+    # Get prediction
+    prediction = torch.argmax(z3).item()
 
     return prediction

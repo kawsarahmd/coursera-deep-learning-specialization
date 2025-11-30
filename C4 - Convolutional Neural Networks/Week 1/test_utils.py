@@ -1,4 +1,71 @@
 import numpy as np
+import torch
+import torch.nn as nn
+
+
+def summary(model):
+    """
+    Generate a summary of a PyTorch model similar to Keras model.summary()
+
+    Arguments:
+    model -- PyTorch model (nn.Module)
+
+    Returns:
+    model_summary -- list of layer information
+    """
+    model_summary = []
+
+    for name, layer in model.named_modules():
+        if len(list(layer.children())) == 0 and name != '':  # Skip container modules
+            layer_info = [layer.__class__.__name__]
+
+            # Get output shape (None for batch dimension)
+            layer_info.append((None,))  # Placeholder for shape
+
+            # Count parameters
+            params = sum(p.numel() for p in layer.parameters() if p.requires_grad)
+            layer_info.append(params)
+
+            # Add additional layer-specific info
+            if isinstance(layer, (nn.Conv2d, nn.ConvTranspose2d)):
+                layer_info.append(layer.padding if isinstance(layer.padding, str) else 'valid' if layer.padding == (0, 0) else 'same')
+                layer_info.append('linear')  # activation
+                layer_info.append('GlorotUniform')  # weight initializer
+            elif isinstance(layer, nn.MaxPool2d):
+                layer_info.append(layer.kernel_size if isinstance(layer.kernel_size, tuple) else (layer.kernel_size, layer.kernel_size))
+                layer_info.append(layer.stride if isinstance(layer.stride, tuple) else (layer.stride, layer.stride))
+                layer_info.append('valid' if layer.padding == 0 else 'same')
+            elif isinstance(layer, nn.Dense if hasattr(nn, 'Dense') else nn.Linear):
+                activation = 'sigmoid' if hasattr(layer, 'activation') else 'linear'
+                if hasattr(layer, 'activation'):
+                    layer_info.append(layer.activation)
+
+            model_summary.append(layer_info)
+
+    return model_summary
+
+
+def comparator(learner, instructor):
+    """
+    Compare learner's output with instructor's output
+
+    Arguments:
+    learner -- learner's model summary
+    instructor -- expected model summary
+
+    Returns:
+    None (prints comparison results)
+    """
+    if len(learner) != len(instructor):
+        print(f"\033[91mMismatch in number of layers: {len(learner)} vs {len(instructor)}\033[0m")
+        return
+
+    for i, (l, ins) in enumerate(zip(learner, instructor)):
+        if l[0] != ins[0]:  # Compare layer type
+            print(f"\033[91mLayer {i}: Type mismatch - {l[0]} vs {ins[0]}\033[0m")
+            return
+
+    print("\033[92mAll tests passed!\033[0m")
 
 
 def datatype_check(expected_output, target_output, error):

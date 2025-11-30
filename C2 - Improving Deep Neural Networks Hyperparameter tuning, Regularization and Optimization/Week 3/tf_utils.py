@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
-import tensorflow as tf
+import torch
+import torch.nn.functional as F
 import math
 
 def load_dataset():
@@ -66,29 +67,38 @@ def convert_to_one_hot(Y, C):
 
 
 def predict(X, parameters):
-    
-    W1 = tf.convert_to_tensor(parameters["W1"])
-    b1 = tf.convert_to_tensor(parameters["b1"])
-    W2 = tf.convert_to_tensor(parameters["W2"])
-    b2 = tf.convert_to_tensor(parameters["b2"])
-    W3 = tf.convert_to_tensor(parameters["W3"])
-    b3 = tf.convert_to_tensor(parameters["b3"])
-    
+    """
+    Predicts the output using the trained parameters
+
+    Arguments:
+    X -- input data (numpy array)
+    parameters -- python dictionary containing trained parameters
+
+    Returns:
+    prediction -- predicted class
+    """
+    # Convert numpy arrays to PyTorch tensors
+    if isinstance(X, np.ndarray):
+        X = torch.from_numpy(X).float()
+
+    W1 = torch.from_numpy(parameters["W1"]).float() if isinstance(parameters["W1"], np.ndarray) else parameters["W1"]
+    b1 = torch.from_numpy(parameters["b1"]).float() if isinstance(parameters["b1"], np.ndarray) else parameters["b1"]
+    W2 = torch.from_numpy(parameters["W2"]).float() if isinstance(parameters["W2"], np.ndarray) else parameters["W2"]
+    b2 = torch.from_numpy(parameters["b2"]).float() if isinstance(parameters["b2"], np.ndarray) else parameters["b2"]
+    W3 = torch.from_numpy(parameters["W3"]).float() if isinstance(parameters["W3"], np.ndarray) else parameters["W3"]
+    b3 = torch.from_numpy(parameters["b3"]).float() if isinstance(parameters["b3"], np.ndarray) else parameters["b3"]
+
     params = {"W1": W1,
               "b1": b1,
               "W2": W2,
               "b2": b2,
               "W3": W3,
               "b3": b3}
-    
-    x = tf.placeholder("float", [12288, 1])
-    
-    z3 = forward_propagation_for_predict(x, params)
-    p = tf.argmax(z3)
-    
-    sess = tf.Session()
-    prediction = sess.run(p, feed_dict = {x: X})
-        
+
+    with torch.no_grad():  # No need to track gradients for prediction
+        z3 = forward_propagation_for_predict(X, params)
+        prediction = torch.argmax(z3).item()
+
     return prediction
 
 def forward_propagation_for_predict(X, parameters):
@@ -104,19 +114,19 @@ def forward_propagation_for_predict(X, parameters):
     Z3 -- the output of the last LINEAR unit
     """
     
-    # Retrieve the parameters from the dictionary "parameters" 
+    # Retrieve the parameters from the dictionary "parameters"
     W1 = parameters['W1']
     b1 = parameters['b1']
     W2 = parameters['W2']
     b2 = parameters['b2']
     W3 = parameters['W3']
-    b3 = parameters['b3'] 
+    b3 = parameters['b3']
                                                            # Numpy Equivalents:
-    Z1 = tf.add(tf.matmul(W1, X), b1)                      # Z1 = np.dot(W1, X) + b1
-    A1 = tf.nn.relu(Z1)                                    # A1 = relu(Z1)
-    Z2 = tf.add(tf.matmul(W2, A1), b2)                     # Z2 = np.dot(W2, a1) + b2
-    A2 = tf.nn.relu(Z2)                                    # A2 = relu(Z2)
-    Z3 = tf.add(tf.matmul(W3, A2), b3)                     # Z3 = np.dot(W3,Z2) + b3
-    
+    Z1 = torch.matmul(W1, X) + b1                          # Z1 = np.dot(W1, X) + b1
+    A1 = F.relu(Z1)                                        # A1 = relu(Z1)
+    Z2 = torch.matmul(W2, A1) + b2                         # Z2 = np.dot(W2, a1) + b2
+    A2 = F.relu(Z2)                                        # A2 = relu(Z2)
+    Z3 = torch.matmul(W3, A2) + b3                         # Z3 = np.dot(W3,Z2) + b3
+
     return Z3
     

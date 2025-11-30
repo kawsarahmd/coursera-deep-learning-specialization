@@ -1,281 +1,388 @@
-import tensorflow as tf
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import os
 from numpy import genfromtxt
-from tensorflow.keras import backend as K
-from tensorflow.keras.layers import Conv2D, ZeroPadding2D, Activation, Input, concatenate
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import BatchNormalization
-from tensorflow.keras.layers import MaxPooling2D, AveragePooling2D
-import fr_utils
-from tensorflow.keras.layers import Lambda, Flatten, Dense
 
-K.set_image_data_format('channels_first')
 
-def inception_block_1a(X):
-    """
-    Implementation of an inception block
-    """
-    
-    X_3x3 = Conv2D(96, (1, 1), data_format='channels_first', name ='inception_3a_3x3_conv1')(X)
-    X_3x3 = BatchNormalization(axis=1, epsilon=0.00001, name = 'inception_3a_3x3_bn1')(X_3x3)
-    X_3x3 = Activation('relu')(X_3x3)
-    X_3x3 = ZeroPadding2D(padding=(1, 1), data_format='channels_first')(X_3x3)
-    X_3x3 = Conv2D(128, (3, 3), data_format='channels_first', name='inception_3a_3x3_conv2')(X_3x3)
-    X_3x3 = BatchNormalization(axis=1, epsilon=0.00001, name='inception_3a_3x3_bn2')(X_3x3)
-    X_3x3 = Activation('relu')(X_3x3)
-    
-    X_5x5 = Conv2D(16, (1, 1), data_format='channels_first', name='inception_3a_5x5_conv1')(X)
-    X_5x5 = BatchNormalization(axis=1, epsilon=0.00001, name='inception_3a_5x5_bn1')(X_5x5)
-    X_5x5 = Activation('relu')(X_5x5)
-    X_5x5 = ZeroPadding2D(padding=(2, 2), data_format='channels_first')(X_5x5)
-    X_5x5 = Conv2D(32, (5, 5), data_format='channels_first', name='inception_3a_5x5_conv2')(X_5x5)
-    X_5x5 = BatchNormalization(axis=1, epsilon=0.00001, name='inception_3a_5x5_bn2')(X_5x5)
-    X_5x5 = Activation('relu')(X_5x5)
+class InceptionBlock1a(nn.Module):
+    """Implementation of an inception block 1a"""
 
-    X_pool = MaxPooling2D(pool_size=3, strides=2, data_format='channels_first')(X)
-    X_pool = Conv2D(32, (1, 1), data_format='channels_first', name='inception_3a_pool_conv')(X_pool)
-    X_pool = BatchNormalization(axis=1, epsilon=0.00001, name='inception_3a_pool_bn')(X_pool)
-    X_pool = Activation('relu')(X_pool)
-    X_pool = ZeroPadding2D(padding=((3, 4), (3, 4)), data_format='channels_first')(X_pool)
+    def __init__(self):
+        super(InceptionBlock1a, self).__init__()
 
-    X_1x1 = Conv2D(64, (1, 1), data_format='channels_first', name='inception_3a_1x1_conv')(X)
-    X_1x1 = BatchNormalization(axis=1, epsilon=0.00001, name='inception_3a_1x1_bn')(X_1x1)
-    X_1x1 = Activation('relu')(X_1x1)
-        
-    # CONCAT
-    inception = concatenate([X_3x3, X_5x5, X_pool, X_1x1], axis=1)
+        # 3x3 branch
+        self.conv_3x3_1 = nn.Conv2d(192, 96, kernel_size=1, stride=1)
+        self.bn_3x3_1 = nn.BatchNorm2d(96, eps=0.00001)
+        self.conv_3x3_2 = nn.Conv2d(96, 128, kernel_size=3, stride=1, padding=1)
+        self.bn_3x3_2 = nn.BatchNorm2d(128, eps=0.00001)
 
-    return inception
+        # 5x5 branch
+        self.conv_5x5_1 = nn.Conv2d(192, 16, kernel_size=1, stride=1)
+        self.bn_5x5_1 = nn.BatchNorm2d(16, eps=0.00001)
+        self.conv_5x5_2 = nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2)
+        self.bn_5x5_2 = nn.BatchNorm2d(32, eps=0.00001)
 
-def inception_block_1b(X):
-    X_3x3 = Conv2D(96, (1, 1), data_format='channels_first', name='inception_3b_3x3_conv1')(X)
-    X_3x3 = BatchNormalization(axis=1, epsilon=0.00001, name='inception_3b_3x3_bn1')(X_3x3)
-    X_3x3 = Activation('relu')(X_3x3)
-    X_3x3 = ZeroPadding2D(padding=(1, 1), data_format='channels_first')(X_3x3)
-    X_3x3 = Conv2D(128, (3, 3), data_format='channels_first', name='inception_3b_3x3_conv2')(X_3x3)
-    X_3x3 = BatchNormalization(axis=1, epsilon=0.00001, name='inception_3b_3x3_bn2')(X_3x3)
-    X_3x3 = Activation('relu')(X_3x3)
+        # Pool branch
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.conv_pool = nn.Conv2d(192, 32, kernel_size=1, stride=1)
+        self.bn_pool = nn.BatchNorm2d(32, eps=0.00001)
 
-    X_5x5 = Conv2D(32, (1, 1), data_format='channels_first', name='inception_3b_5x5_conv1')(X)
-    X_5x5 = BatchNormalization(axis=1, epsilon=0.00001, name='inception_3b_5x5_bn1')(X_5x5)
-    X_5x5 = Activation('relu')(X_5x5)
-    X_5x5 = ZeroPadding2D(padding=(2, 2), data_format='channels_first')(X_5x5)
-    X_5x5 = Conv2D(64, (5, 5), data_format='channels_first', name='inception_3b_5x5_conv2')(X_5x5)
-    X_5x5 = BatchNormalization(axis=1, epsilon=0.00001, name='inception_3b_5x5_bn2')(X_5x5)
-    X_5x5 = Activation('relu')(X_5x5)
+        # 1x1 branch
+        self.conv_1x1 = nn.Conv2d(192, 64, kernel_size=1, stride=1)
+        self.bn_1x1 = nn.BatchNorm2d(64, eps=0.00001)
 
-    X_pool = AveragePooling2D(pool_size=(3, 3), strides=(3, 3), data_format='channels_first')(X)
-    X_pool = Conv2D(64, (1, 1), data_format='channels_first', name='inception_3b_pool_conv')(X_pool)
-    X_pool = BatchNormalization(axis=1, epsilon=0.00001, name='inception_3b_pool_bn')(X_pool)
-    X_pool = Activation('relu')(X_pool)
-    X_pool = ZeroPadding2D(padding=(4, 4), data_format='channels_first')(X_pool)
+    def forward(self, x):
+        # 3x3 branch
+        x_3x3 = F.relu(self.bn_3x3_1(self.conv_3x3_1(x)))
+        x_3x3 = F.relu(self.bn_3x3_2(self.conv_3x3_2(x_3x3)))
 
-    X_1x1 = Conv2D(64, (1, 1), data_format='channels_first', name='inception_3b_1x1_conv')(X)
-    X_1x1 = BatchNormalization(axis=1, epsilon=0.00001, name='inception_3b_1x1_bn')(X_1x1)
-    X_1x1 = Activation('relu')(X_1x1)
+        # 5x5 branch
+        x_5x5 = F.relu(self.bn_5x5_1(self.conv_5x5_1(x)))
+        x_5x5 = F.relu(self.bn_5x5_2(self.conv_5x5_2(x_5x5)))
 
-    inception = concatenate([X_3x3, X_5x5, X_pool, X_1x1], axis=1)
+        # Pool branch
+        x_pool = self.maxpool(x)
+        x_pool = F.relu(self.bn_pool(self.conv_pool(x_pool)))
+        # Zero padding to match dimensions
+        x_pool = F.pad(x_pool, (3, 4, 3, 4))
 
-    return inception
+        # 1x1 branch
+        x_1x1 = F.relu(self.bn_1x1(self.conv_1x1(x)))
 
-def inception_block_1c(X):
-    X_3x3 = fr_utils.conv2d_bn(X,
-                           layer='inception_3c_3x3',
-                           cv1_out=128,
-                           cv1_filter=(1, 1),
-                           cv2_out=256,
-                           cv2_filter=(3, 3),
-                           cv2_strides=(2, 2),
-                           padding=(1, 1))
+        # Concatenate
+        return torch.cat([x_3x3, x_5x5, x_pool, x_1x1], dim=1)
 
-    X_5x5 = fr_utils.conv2d_bn(X,
-                           layer='inception_3c_5x5',
-                           cv1_out=32,
-                           cv1_filter=(1, 1),
-                           cv2_out=64,
-                           cv2_filter=(5, 5),
-                           cv2_strides=(2, 2),
-                           padding=(2, 2))
 
-    X_pool = MaxPooling2D(pool_size=3, strides=2, data_format='channels_first')(X)
-    X_pool = ZeroPadding2D(padding=((0, 1), (0, 1)), data_format='channels_first')(X_pool)
+class InceptionBlock1b(nn.Module):
+    """Implementation of an inception block 1b"""
 
-    inception = concatenate([X_3x3, X_5x5, X_pool], axis=1)
+    def __init__(self):
+        super(InceptionBlock1b, self).__init__()
 
-    return inception
+        # 3x3 branch
+        self.conv_3x3_1 = nn.Conv2d(256, 96, kernel_size=1, stride=1)
+        self.bn_3x3_1 = nn.BatchNorm2d(96, eps=0.00001)
+        self.conv_3x3_2 = nn.Conv2d(96, 128, kernel_size=3, stride=1, padding=1)
+        self.bn_3x3_2 = nn.BatchNorm2d(128, eps=0.00001)
 
-def inception_block_2a(X):
-    X_3x3 = fr_utils.conv2d_bn(X,
-                           layer='inception_4a_3x3',
-                           cv1_out=96,
-                           cv1_filter=(1, 1),
-                           cv2_out=192,
-                           cv2_filter=(3, 3),
-                           cv2_strides=(1, 1),
-                           padding=(1, 1))
-    X_5x5 = fr_utils.conv2d_bn(X,
-                           layer='inception_4a_5x5',
-                           cv1_out=32,
-                           cv1_filter=(1, 1),
-                           cv2_out=64,
-                           cv2_filter=(5, 5),
-                           cv2_strides=(1, 1),
-                           padding=(2, 2))
+        # 5x5 branch
+        self.conv_5x5_1 = nn.Conv2d(256, 32, kernel_size=1, stride=1)
+        self.bn_5x5_1 = nn.BatchNorm2d(32, eps=0.00001)
+        self.conv_5x5_2 = nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=2)
+        self.bn_5x5_2 = nn.BatchNorm2d(64, eps=0.00001)
 
-    X_pool = AveragePooling2D(pool_size=(3, 3), strides=(3, 3), data_format='channels_first')(X)
-    X_pool = fr_utils.conv2d_bn(X_pool,
-                           layer='inception_4a_pool',
-                           cv1_out=128,
-                           cv1_filter=(1, 1),
-                           padding=(2, 2))
-    X_1x1 = fr_utils.conv2d_bn(X,
-                           layer='inception_4a_1x1',
-                           cv1_out=256,
-                           cv1_filter=(1, 1))
-    inception = concatenate([X_3x3, X_5x5, X_pool, X_1x1], axis=1)
+        # Pool branch
+        self.avgpool = nn.AvgPool2d(kernel_size=3, stride=3)
+        self.conv_pool = nn.Conv2d(256, 64, kernel_size=1, stride=1)
+        self.bn_pool = nn.BatchNorm2d(64, eps=0.00001)
 
-    return inception
+        # 1x1 branch
+        self.conv_1x1 = nn.Conv2d(256, 64, kernel_size=1, stride=1)
+        self.bn_1x1 = nn.BatchNorm2d(64, eps=0.00001)
 
-def inception_block_2b(X):
-    #inception4e
-    X_3x3 = fr_utils.conv2d_bn(X,
-                           layer='inception_4e_3x3',
-                           cv1_out=160,
-                           cv1_filter=(1, 1),
-                           cv2_out=256,
-                           cv2_filter=(3, 3),
-                           cv2_strides=(2, 2),
-                           padding=(1, 1))
-    X_5x5 = fr_utils.conv2d_bn(X,
-                           layer='inception_4e_5x5',
-                           cv1_out=64,
-                           cv1_filter=(1, 1),
-                           cv2_out=128,
-                           cv2_filter=(5, 5),
-                           cv2_strides=(2, 2),
-                           padding=(2, 2))
-    
-    X_pool = MaxPooling2D(pool_size=3, strides=2, data_format='channels_first')(X)
-    X_pool = ZeroPadding2D(padding=((0, 1), (0, 1)), data_format='channels_first')(X_pool)
+    def forward(self, x):
+        # 3x3 branch
+        x_3x3 = F.relu(self.bn_3x3_1(self.conv_3x3_1(x)))
+        x_3x3 = F.relu(self.bn_3x3_2(self.conv_3x3_2(x_3x3)))
 
-    inception = concatenate([X_3x3, X_5x5, X_pool], axis=1)
+        # 5x5 branch
+        x_5x5 = F.relu(self.bn_5x5_1(self.conv_5x5_1(x)))
+        x_5x5 = F.relu(self.bn_5x5_2(self.conv_5x5_2(x_5x5)))
 
-    return inception
+        # Pool branch
+        x_pool = self.avgpool(x)
+        x_pool = F.relu(self.bn_pool(self.conv_pool(x_pool)))
+        # Zero padding to match dimensions
+        x_pool = F.pad(x_pool, (4, 4, 4, 4))
 
-def inception_block_3a(X):
-    X_3x3 = fr_utils.conv2d_bn(X,
-                           layer='inception_5a_3x3',
-                           cv1_out=96,
-                           cv1_filter=(1, 1),
-                           cv2_out=384,
-                           cv2_filter=(3, 3),
-                           cv2_strides=(1, 1),
-                           padding=(1, 1))
-    X_pool = AveragePooling2D(pool_size=(3, 3), strides=(3, 3), data_format='channels_first')(X)
-    X_pool = fr_utils.conv2d_bn(X_pool,
-                           layer='inception_5a_pool',
-                           cv1_out=96,
-                           cv1_filter=(1, 1),
-                           padding=(1, 1))
-    X_1x1 = fr_utils.conv2d_bn(X,
-                           layer='inception_5a_1x1',
-                           cv1_out=256,
-                           cv1_filter=(1, 1))
+        # 1x1 branch
+        x_1x1 = F.relu(self.bn_1x1(self.conv_1x1(x)))
 
-    inception = concatenate([X_3x3, X_pool, X_1x1], axis=1)
+        # Concatenate
+        return torch.cat([x_3x3, x_5x5, x_pool, x_1x1], dim=1)
 
-    return inception
 
-def inception_block_3b(X):
-    X_3x3 = fr_utils.conv2d_bn(X,
-                           layer='inception_5b_3x3',
-                           cv1_out=96,
-                           cv1_filter=(1, 1),
-                           cv2_out=384,
-                           cv2_filter=(3, 3),
-                           cv2_strides=(1, 1),
-                           padding=(1, 1))
-    X_pool = MaxPooling2D(pool_size=3, strides=2, data_format='channels_first')(X)
-    X_pool = fr_utils.conv2d_bn(X_pool,
-                           layer='inception_5b_pool',
-                           cv1_out=96,
-                           cv1_filter=(1, 1))
-    X_pool = ZeroPadding2D(padding=(1, 1), data_format='channels_first')(X_pool)
+class Conv2dBN(nn.Module):
+    """Helper module for Conv2d + BatchNorm + ReLU with optional padding"""
 
-    X_1x1 = fr_utils.conv2d_bn(X,
-                           layer='inception_5b_1x1',
-                           cv1_out=256,
-                           cv1_filter=(1, 1))
-    inception = concatenate([X_3x3, X_pool, X_1x1], axis=1)
+    def __init__(self, in_channels, out_channels1, kernel_size1=(1, 1), stride1=(1, 1),
+                 out_channels2=None, kernel_size2=(3, 3), stride2=(1, 1), padding=None):
+        super(Conv2dBN, self).__init__()
 
-    return inception
+        self.conv1 = nn.Conv2d(in_channels, out_channels1, kernel_size=kernel_size1, stride=stride1)
+        self.bn1 = nn.BatchNorm2d(out_channels1, eps=0.00001)
 
-def faceRecoModel(input_shape):
+        self.padding = padding
+        self.has_second_conv = out_channels2 is not None
+
+        if self.has_second_conv:
+            self.conv2 = nn.Conv2d(out_channels1, out_channels2, kernel_size=kernel_size2, stride=stride2)
+            self.bn2 = nn.BatchNorm2d(out_channels2, eps=0.00001)
+
+    def forward(self, x):
+        x = F.relu(self.bn1(self.conv1(x)))
+
+        if self.padding is not None:
+            if isinstance(self.padding, tuple) and len(self.padding) == 2:
+                # padding is (pad_h, pad_w)
+                x = F.pad(x, (self.padding[1], self.padding[1], self.padding[0], self.padding[0]))
+            else:
+                x = F.pad(x, (self.padding, self.padding, self.padding, self.padding))
+
+        if self.has_second_conv:
+            x = F.relu(self.bn2(self.conv2(x)))
+
+        return x
+
+
+class InceptionBlock1c(nn.Module):
+    """Implementation of an inception block 1c"""
+
+    def __init__(self):
+        super(InceptionBlock1c, self).__init__()
+
+        # 3x3 branch
+        self.conv_3x3 = Conv2dBN(256, 128, (1, 1), (1, 1), 256, (3, 3), (2, 2), (1, 1))
+
+        # 5x5 branch
+        self.conv_5x5 = Conv2dBN(256, 32, (1, 1), (1, 1), 64, (5, 5), (2, 2), (2, 2))
+
+        # Pool branch
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2)
+
+    def forward(self, x):
+        # 3x3 branch
+        x_3x3 = self.conv_3x3(x)
+
+        # 5x5 branch
+        x_5x5 = self.conv_5x5(x)
+
+        # Pool branch
+        x_pool = self.maxpool(x)
+        x_pool = F.pad(x_pool, (0, 1, 0, 1))
+
+        # Concatenate
+        return torch.cat([x_3x3, x_5x5, x_pool], dim=1)
+
+
+class InceptionBlock2a(nn.Module):
+    """Implementation of an inception block 2a"""
+
+    def __init__(self):
+        super(InceptionBlock2a, self).__init__()
+
+        # 3x3 branch
+        self.conv_3x3 = Conv2dBN(640, 96, (1, 1), (1, 1), 192, (3, 3), (1, 1), (1, 1))
+
+        # 5x5 branch
+        self.conv_5x5 = Conv2dBN(640, 32, (1, 1), (1, 1), 64, (5, 5), (1, 1), (2, 2))
+
+        # Pool branch
+        self.avgpool = nn.AvgPool2d(kernel_size=3, stride=3)
+        self.conv_pool = Conv2dBN(640, 128, (1, 1), (1, 1), padding=(2, 2))
+
+        # 1x1 branch
+        self.conv_1x1 = Conv2dBN(640, 256, (1, 1), (1, 1))
+
+    def forward(self, x):
+        # 3x3 branch
+        x_3x3 = self.conv_3x3(x)
+
+        # 5x5 branch
+        x_5x5 = self.conv_5x5(x)
+
+        # Pool branch
+        x_pool = self.avgpool(x)
+        x_pool = self.conv_pool(x_pool)
+
+        # 1x1 branch
+        x_1x1 = self.conv_1x1(x)
+
+        # Concatenate
+        return torch.cat([x_3x3, x_5x5, x_pool, x_1x1], dim=1)
+
+
+class InceptionBlock2b(nn.Module):
+    """Implementation of an inception block 2b (inception4e)"""
+
+    def __init__(self):
+        super(InceptionBlock2b, self).__init__()
+
+        # 3x3 branch
+        self.conv_3x3 = Conv2dBN(640, 160, (1, 1), (1, 1), 256, (3, 3), (2, 2), (1, 1))
+
+        # 5x5 branch
+        self.conv_5x5 = Conv2dBN(640, 64, (1, 1), (1, 1), 128, (5, 5), (2, 2), (2, 2))
+
+        # Pool branch
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2)
+
+    def forward(self, x):
+        # 3x3 branch
+        x_3x3 = self.conv_3x3(x)
+
+        # 5x5 branch
+        x_5x5 = self.conv_5x5(x)
+
+        # Pool branch
+        x_pool = self.maxpool(x)
+        x_pool = F.pad(x_pool, (0, 1, 0, 1))
+
+        # Concatenate
+        return torch.cat([x_3x3, x_5x5, x_pool], dim=1)
+
+
+class InceptionBlock3a(nn.Module):
+    """Implementation of an inception block 3a"""
+
+    def __init__(self):
+        super(InceptionBlock3a, self).__init__()
+
+        # 3x3 branch
+        self.conv_3x3 = Conv2dBN(1024, 96, (1, 1), (1, 1), 384, (3, 3), (1, 1), (1, 1))
+
+        # Pool branch
+        self.avgpool = nn.AvgPool2d(kernel_size=3, stride=3)
+        self.conv_pool = Conv2dBN(1024, 96, (1, 1), (1, 1), padding=(1, 1))
+
+        # 1x1 branch
+        self.conv_1x1 = Conv2dBN(1024, 256, (1, 1), (1, 1))
+
+    def forward(self, x):
+        # 3x3 branch
+        x_3x3 = self.conv_3x3(x)
+
+        # Pool branch
+        x_pool = self.avgpool(x)
+        x_pool = self.conv_pool(x_pool)
+
+        # 1x1 branch
+        x_1x1 = self.conv_1x1(x)
+
+        # Concatenate
+        return torch.cat([x_3x3, x_pool, x_1x1], dim=1)
+
+
+class InceptionBlock3b(nn.Module):
+    """Implementation of an inception block 3b"""
+
+    def __init__(self):
+        super(InceptionBlock3b, self).__init__()
+
+        # 3x3 branch
+        self.conv_3x3 = Conv2dBN(736, 96, (1, 1), (1, 1), 384, (3, 3), (1, 1), (1, 1))
+
+        # Pool branch
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.conv_pool = Conv2dBN(736, 96, (1, 1), (1, 1))
+
+        # 1x1 branch
+        self.conv_1x1 = Conv2dBN(736, 256, (1, 1), (1, 1))
+
+    def forward(self, x):
+        # 3x3 branch
+        x_3x3 = self.conv_3x3(x)
+
+        # Pool branch
+        x_pool = self.maxpool(x)
+        x_pool = self.conv_pool(x_pool)
+        x_pool = F.pad(x_pool, (1, 1, 1, 1))
+
+        # 1x1 branch
+        x_1x1 = self.conv_1x1(x)
+
+        # Concatenate
+        return torch.cat([x_3x3, x_pool, x_1x1], dim=1)
+
+
+class FaceRecoModel(nn.Module):
     """
     Implementation of the Inception model used for FaceNet
-    
+
     Arguments:
-    input_shape -- shape of the images of the dataset
+    input_shape -- shape of the images of the dataset (channels, height, width)
 
     Returns:
-    model -- a Model() instance in Keras
+    model -- a PyTorch model instance
     """
-        
-    # Define the input as a tensor with shape input_shape
-    X_input = Input(input_shape)
 
-    # Zero-Padding
-    X = ZeroPadding2D((3, 3))(X_input)
-    
-    # First Block
-    X = Conv2D(64, (7, 7), strides = (2, 2), name = 'conv1', data_format='channels_first')(X)
-    X = BatchNormalization(axis = 1, name = 'bn1')(X)
-    X = Activation('relu')(X)
-    
-    # Zero-Padding + MAXPOOL
-    X = ZeroPadding2D((1, 1),data_format='channels_first' )(X)
-    X = MaxPooling2D((3, 3), strides = 2, data_format='channels_first')(X)
-    
-    # Second Block
-    X = Conv2D(64, (1, 1), strides = (1, 1), name = 'conv2', data_format='channels_first')(X)
-    X = BatchNormalization(axis = 1, epsilon=0.00001, name = 'bn2')(X)
-    X = Activation('relu')(X)
-    
-    # Zero-Padding + MAXPOOL
-    X = ZeroPadding2D((1, 1), data_format='channels_first')(X)
+    def __init__(self, input_shape=(3, 96, 96)):
+        super(FaceRecoModel, self).__init__()
 
-    # Second Block
-    X = Conv2D(192, (3, 3), strides = (1, 1), name = 'conv3', data_format='channels_first')(X)
-    X = BatchNormalization(axis = 1, epsilon=0.00001, name = 'bn3')(X)
-    X = Activation('relu')(X)
-    
-    # Zero-Padding + MAXPOOL
-    X = ZeroPadding2D((1, 1), data_format='channels_first')(X)
-    X = MaxPooling2D(pool_size = 3, strides = 2,data_format='channels_first')(X)
-    
-    # Inception 1: a/b/c
-    X = inception_block_1a(X)
-    X = inception_block_1b(X)
-    X = inception_block_1c(X)
-    
-    # Inception 2: a/b
-    X = inception_block_2a(X)
-    X = inception_block_2b(X)
-    
-    # Inception 3: a/b
-    X = inception_block_3a(X)
-    X = inception_block_3b(X)
-    
-    # Top layer
-    X = AveragePooling2D(pool_size=(3, 3), strides=(1, 1), data_format='channels_first')(X)
-    X = Flatten()(X)
-    X = Dense(128, name='dense_layer')(X)
-    
-    # L2 normalization
-    X = Lambda(lambda  x: K.l2_normalize(x,axis=1))(X)
+        # First Block
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
-    # Create model instance
-    model = Model(inputs = X_input, outputs = X, name='FaceRecoModel')
-        
-    return model
+        # Second Block
+        self.conv2 = nn.Conv2d(64, 64, kernel_size=1, stride=1)
+        self.bn2 = nn.BatchNorm2d(64, eps=0.00001)
+
+        # Third Block
+        self.conv3 = nn.Conv2d(64, 192, kernel_size=3, stride=1, padding=1)
+        self.bn3 = nn.BatchNorm2d(192, eps=0.00001)
+        self.maxpool2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+        # Inception blocks
+        self.inception_1a = InceptionBlock1a()
+        self.inception_1b = InceptionBlock1b()
+        self.inception_1c = InceptionBlock1c()
+
+        self.inception_2a = InceptionBlock2a()
+        self.inception_2b = InceptionBlock2b()
+
+        self.inception_3a = InceptionBlock3a()
+        self.inception_3b = InceptionBlock3b()
+
+        # Top layer
+        self.avgpool = nn.AvgPool2d(kernel_size=3, stride=1)
+        self.flatten = nn.Flatten()
+        self.fc = nn.Linear(736, 128)
+
+    def forward(self, x):
+        # First Block
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.maxpool1(x)
+
+        # Second Block
+        x = F.relu(self.bn2(self.conv2(x)))
+
+        # Third Block
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = self.maxpool2(x)
+
+        # Inception blocks
+        x = self.inception_1a(x)
+        x = self.inception_1b(x)
+        x = self.inception_1c(x)
+
+        x = self.inception_2a(x)
+        x = self.inception_2b(x)
+
+        x = self.inception_3a(x)
+        x = self.inception_3b(x)
+
+        # Top layer
+        x = self.avgpool(x)
+        x = self.flatten(x)
+        x = self.fc(x)
+
+        # L2 normalization
+        x = F.normalize(x, p=2, dim=1)
+
+        return x
+
+
+def faceRecoModel(input_shape=(3, 96, 96)):
+    """
+    Creates and returns the FaceNet Inception model
+
+    Arguments:
+    input_shape -- shape of the images (channels, height, width)
+
+    Returns:
+    model -- PyTorch FaceRecoModel instance
+    """
+    return FaceRecoModel(input_shape)

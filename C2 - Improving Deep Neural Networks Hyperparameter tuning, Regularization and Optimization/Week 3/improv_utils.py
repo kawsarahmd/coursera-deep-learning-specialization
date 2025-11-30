@@ -1,6 +1,8 @@
 import h5py
 import numpy as np
-import tensorflow as tf
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import math
 
 def load_dataset():
@@ -65,80 +67,85 @@ def convert_to_one_hot(Y, C):
     return Y
 
 def predict(X, parameters):
-    
-    W1 = tf.convert_to_tensor(parameters["W1"])
-    b1 = tf.convert_to_tensor(parameters["b1"])
-    W2 = tf.convert_to_tensor(parameters["W2"])
-    b2 = tf.convert_to_tensor(parameters["b2"])
-    W3 = tf.convert_to_tensor(parameters["W3"])
-    b3 = tf.convert_to_tensor(parameters["b3"])
-    
-    params = {"W1": W1,
-              "b1": b1,
-              "W2": W2,
-              "b2": b2,
-              "W3": W3,
-              "b3": b3}
-    
-    x = tf.placeholder("float", [12288, 1])
-    
-    z3 = forward_propagation(x, params)
-    p = tf.argmax(z3)
-    
-    with tf.Session() as sess:
-        prediction = sess.run(p, feed_dict = {x: X})
-        
-    return prediction
+    """
+    Predict using the trained parameters.
+
+    Arguments:
+    X -- input data of shape (12288, number of examples)
+    parameters -- python dictionary containing trained parameters
+
+    Returns:
+    prediction -- predictions for the given data
+    """
+    # Convert to PyTorch tensors if needed
+    if not isinstance(X, torch.Tensor):
+        X = torch.from_numpy(X).float()
+
+    # Convert parameters to tensors
+    W1 = torch.from_numpy(parameters["W1"]).float() if isinstance(parameters["W1"], np.ndarray) else parameters["W1"]
+    b1 = torch.from_numpy(parameters["b1"]).float() if isinstance(parameters["b1"], np.ndarray) else parameters["b1"]
+    W2 = torch.from_numpy(parameters["W2"]).float() if isinstance(parameters["W2"], np.ndarray) else parameters["W2"]
+    b2 = torch.from_numpy(parameters["b2"]).float() if isinstance(parameters["b2"], np.ndarray) else parameters["b2"]
+    W3 = torch.from_numpy(parameters["W3"]).float() if isinstance(parameters["W3"], np.ndarray) else parameters["W3"]
+    b3 = torch.from_numpy(parameters["b3"]).float() if isinstance(parameters["b3"], np.ndarray) else parameters["b3"]
+
+    params = {"W1": W1, "b1": b1, "W2": W2, "b2": b2, "W3": W3, "b3": b3}
+
+    # Forward propagation
+    with torch.no_grad():
+        z3 = forward_propagation(X, params)
+        prediction = torch.argmax(z3, dim=0)
+
+    return prediction.numpy()
     
 
 def create_placeholders(n_x, n_y):
     """
-    Creates the placeholders for the tensorflow session.
-    
+    Note: Placeholders are not needed in PyTorch.
+    This function is kept for backward compatibility but does nothing.
+
     Arguments:
     n_x -- scalar, size of an image vector (num_px * num_px = 64 * 64 * 3 = 12288)
     n_y -- scalar, number of classes (from 0 to 5, so -> 6)
-    
-    Returns:
-    X -- placeholder for the data input, of shape [n_x, None] and dtype "float"
-    Y -- placeholder for the input labels, of shape [n_y, None] and dtype "float"
-    
-    Tips:
-    - You will use None because it let's us be flexible on the number of examples you will for the placeholders.
-      In fact, the number of examples during test/train is different.
-    """
 
-    ### START CODE HERE ### (approx. 2 lines)
-    X = tf.placeholder("float", [n_x, None])
-    Y = tf.placeholder("float", [n_y, None])
-    ### END CODE HERE ###
-    
-    return X, Y
+    Returns:
+    None, None
+
+    Tips:
+    - PyTorch uses dynamic computation graphs, so placeholders are not required.
+    """
+    # Not needed in PyTorch
+    return None, None
 
 
 def initialize_parameters():
     """
-    Initializes parameters to build a neural network with tensorflow. The shapes are:
+    Initializes parameters to build a neural network with PyTorch. The shapes are:
                         W1 : [25, 12288]
                         b1 : [25, 1]
                         W2 : [12, 25]
                         b2 : [12, 1]
                         W3 : [6, 12]
                         b3 : [6, 1]
-    
+
     Returns:
     parameters -- a dictionary of tensors containing W1, b1, W2, b2, W3, b3
     """
-    
-    tf.set_random_seed(1)                              # so that your "random" numbers match ours
-        
+
+    torch.manual_seed(1)  # so that your "random" numbers match ours
+
     ### START CODE HERE ### (approx. 6 lines of code)
-    W1 = tf.get_variable("W1", [25,12288], initializer = tf.contrib.layers.xavier_initializer(seed = 1))
-    b1 = tf.get_variable("b1", [25,1], initializer = tf.zeros_initializer())
-    W2 = tf.get_variable("W2", [12,25], initializer = tf.contrib.layers.xavier_initializer(seed = 1))
-    b2 = tf.get_variable("b2", [12,1], initializer = tf.zeros_initializer())
-    W3 = tf.get_variable("W3", [6,12], initializer = tf.contrib.layers.xavier_initializer(seed = 1))
-    b3 = tf.get_variable("b3", [6,1], initializer = tf.zeros_initializer())
+    W1 = torch.empty(25, 12288)
+    nn.init.xavier_uniform_(W1)
+    b1 = torch.zeros(25, 1)
+
+    W2 = torch.empty(12, 25)
+    nn.init.xavier_uniform_(W2)
+    b2 = torch.zeros(12, 1)
+
+    W3 = torch.empty(6, 12)
+    nn.init.xavier_uniform_(W3)
+    b3 = torch.zeros(6, 1)
     ### END CODE HERE ###
 
     parameters = {"W1": W1,
@@ -147,30 +154,36 @@ def initialize_parameters():
                   "b2": b2,
                   "W3": W3,
                   "b3": b3}
-    
+
     return parameters
 
 
 def compute_cost(z3, Y):
     """
     Computes the cost
-    
+
     Arguments:
-    z3 -- output of forward propagation (output of the last LINEAR unit), of shape (10, number of examples)
-    Y -- "true" labels vector placeholder, same shape as z3
-    
+    z3 -- output of forward propagation (output of the last LINEAR unit), of shape (6, number of examples)
+    Y -- "true" labels vector, same shape as z3
+
     Returns:
     cost - Tensor of the cost function
     """
-    
-    # to fit the tensorflow requirement for tf.nn.softmax_cross_entropy_with_logits()
-    logits = tf.transpose(z3)
-    labels = tf.transpose(Y)
-    
+
+    # Convert to PyTorch tensors if needed
+    if not isinstance(z3, torch.Tensor):
+        z3 = torch.from_numpy(z3).float()
+    if not isinstance(Y, torch.Tensor):
+        Y = torch.from_numpy(Y).float()
+
+    # Transpose to fit PyTorch requirement (batch_size, num_classes)
+    logits = z3.t()
+    labels = Y.t()
+
     ### START CODE HERE ### (1 line of code)
-    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits = logits, labels = labels))
+    cost = F.cross_entropy(logits, labels.argmax(dim=1))
     ### END CODE HERE ###
-    
+
     return cost
 
 
@@ -179,11 +192,44 @@ def compute_cost(z3, Y):
 
 
 
+def forward_propagation(X, parameters):
+    """
+    Implements the forward propagation for the model: LINEAR->RELU->LINEAR->RELU->LINEAR->SOFTMAX.
+
+    Arguments:
+    X -- input dataset, of shape (input size, number of examples)
+    parameters -- python dictionary containing your parameters "W1", "b1", "W2", "b2", "W3", "b3"
+
+    Returns:
+    Z3 -- the output of the last LINEAR unit
+    """
+    # Retrieve the parameters from the dictionary "parameters"
+    W1 = parameters['W1']
+    b1 = parameters['b1']
+    W2 = parameters['W2']
+    b2 = parameters['b2']
+    W3 = parameters['W3']
+    b3 = parameters['b3']
+
+    # Convert to PyTorch tensors if needed
+    if not isinstance(X, torch.Tensor):
+        X = torch.from_numpy(X).float()
+
+    # Forward propagation
+    Z1 = torch.matmul(W1, X) + b1
+    A1 = torch.relu(Z1)
+    Z2 = torch.matmul(W2, A1) + b2
+    A2 = torch.relu(Z2)
+    Z3 = torch.matmul(W3, A2) + b3
+
+    return Z3
+
+
 def model(X_train, Y_train, X_test, Y_test, learning_rate = 0.0001,
           num_epochs = 1500, minibatch_size = 32, print_cost = True):
     """
-    Implements a three-layer tensorflow neural network: LINEAR->RELU->LINEAR->RELU->LINEAR->SOFTMAX.
-    
+    Implements a three-layer PyTorch neural network: LINEAR->RELU->LINEAR->RELU->LINEAR->SOFTMAX.
+
     Arguments:
     X_train -- training set, of shape (input size = 12288, number of training examples = 1080)
     Y_train -- test set, of shape (output size = 6, number of training examples = 1080)
@@ -193,97 +239,107 @@ def model(X_train, Y_train, X_test, Y_test, learning_rate = 0.0001,
     num_epochs -- number of epochs of the optimization loop
     minibatch_size -- size of a minibatch
     print_cost -- True to print the cost every 100 epochs
-    
+
     Returns:
     parameters -- parameters learnt by the model. They can then be used to predict.
     """
-    
-    ops.reset_default_graph()                         # to be able to rerun the model without overwriting tf variables
-    tf.set_random_seed(1)                             # to keep consistent results
-    seed = 3                                          # to keep consistent results
-    (n_x, m) = X_train.shape                          # (n_x: input size, m : number of examples in the train set)
-    n_y = Y_train.shape[0]                                  # n_y : output size
-    costs = []                                        # To keep track of the cost
-    
-    # Create Placeholders of shape (n_x, n_y)
-    ### START CODE HERE ### (1 line)
-    X, Y = create_placeholders(n_x, n_y)
-    ### END CODE HERE ###
+
+    torch.manual_seed(1)  # to keep consistent results
+    seed = 3  # to keep consistent results
+    (n_x, m) = X_train.shape  # (n_x: input size, m : number of examples in the train set)
+    n_y = Y_train.shape[0]  # n_y : output size
+    costs = []  # To keep track of the cost
 
     # Initialize parameters
     ### START CODE HERE ### (1 line)
     parameters = initialize_parameters()
     ### END CODE HERE ###
-    
-    # Forward propagation: Build the forward propagation in the tensorflow graph
+
+    # Make parameters require gradients
+    for key in parameters:
+        parameters[key].requires_grad = True
+
+    # Backpropagation: Define the PyTorch optimizer. Use Adam.
     ### START CODE HERE ### (1 line)
-    z3 = forward_propagation(X, parameters)
+    optimizer = torch.optim.Adam(parameters.values(), lr=learning_rate)
     ### END CODE HERE ###
-    
-    # Cost function: Add cost function to tensorflow graph
-    ### START CODE HERE ### (1 line)
-    cost = compute_cost(z3, Y)
-    ### END CODE HERE ###
-    
-    # Backpropagation: Define the tensorflow optimizer. Use an AdamOptimizer.
-    ### START CODE HERE ### (1 line)
-    optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(cost)
-    ### END CODE HERE ###
-    
-    # Initialize all the variables
-    init = tf.global_variables_initializer()
 
-    # Start the session to compute the tensorflow graph
-    with tf.Session() as sess:
-        
-        # Run the initialization
-        sess.run(init)
-        
-        # Do the training loop
-        for epoch in range(num_epochs):
+    # Do the training loop
+    for epoch in range(num_epochs):
 
-            minibatch_cost = 0.
-            num_minibatches = int(m / minibatch_size) # number of minibatches of size minibatch_size in the train set
-            seed = seed + 1
-            minibatches = random_mini_batches(X_train, Y_train, minibatch_size, seed)
+        epoch_cost = 0.
+        num_minibatches = int(m / minibatch_size)  # number of minibatches of size minibatch_size in the train set
+        seed = seed + 1
+        minibatches = random_mini_batches(X_train, Y_train, minibatch_size, seed)
 
-            for minibatch in minibatches:
+        for minibatch in minibatches:
 
-                # Select a minibatch
-                (minibatch_X, minibatch_Y) = minibatch
-                
-                # IMPORTANT: The line that runs the graph on a minibatch.
-                # Run the session to execute the optimizer and the cost, the feedict should contain a minibatch for (X,Y).
-                ### START CODE HERE ### (1 line)
-                _ , temp_cost = sess.run([optimizer, cost], feed_dict={X: minibatch_X, Y: minibatch_Y})
-                ### END CODE HERE ###
-                
-                minibatch_cost += temp_cost / num_minibatches
+            # Select a minibatch
+            (minibatch_X, minibatch_Y) = minibatch
 
-            # Print the cost every epoch
-            if print_cost == True and epoch % 100 == 0:
-                print ("Cost after epoch %i: %f" % (epoch, minibatch_cost))
-            if print_cost == True and epoch % 5 == 0:
-                costs.append(minibatch_cost)
-                
-        # plot the cost
-        plt.plot(np.squeeze(costs))
-        plt.ylabel('cost')
-        plt.xlabel('iterations (per tens)')
-        plt.title("Learning rate =" + str(learning_rate))
-        plt.show()
+            # Convert to PyTorch tensors
+            minibatch_X = torch.from_numpy(minibatch_X).float()
+            minibatch_Y = torch.from_numpy(minibatch_Y).float()
 
-        # lets save the parameters in a variable
-        parameters = sess.run(parameters)
-        print ("Parameters have been trained!")
+            # Zero the gradients
+            optimizer.zero_grad()
 
-        # Calculate the correct predictions
-        correct_prediction = tf.equal(tf.argmax(z3), tf.argmax(Y))
+            # Forward propagation: Build the forward propagation
+            ### START CODE HERE ### (1 line)
+            z3 = forward_propagation(minibatch_X, parameters)
+            ### END CODE HERE ###
 
-        # Calculate accuracy on the test set
-        accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+            # Cost function
+            ### START CODE HERE ### (1 line)
+            cost = compute_cost(z3, minibatch_Y)
+            ### END CODE HERE ###
 
-        print ("Train Accuracy:", accuracy.eval({X: X_train, Y: Y_train}))
-        print ("Test Accuracy:", accuracy.eval({X: X_test, Y: Y_test}))
-        
-        return parameters
+            # Backward propagation
+            cost.backward()
+
+            # Update parameters
+            optimizer.step()
+
+            epoch_cost += cost.item() / num_minibatches
+
+        # Print the cost every epoch
+        if print_cost == True and epoch % 100 == 0:
+            print ("Cost after epoch %i: %f" % (epoch, epoch_cost))
+        if print_cost == True and epoch % 5 == 0:
+            costs.append(epoch_cost)
+
+    # plot the cost
+    import matplotlib.pyplot as plt
+    plt.plot(np.squeeze(costs))
+    plt.ylabel('cost')
+    plt.xlabel('iterations (per tens)')
+    plt.title("Learning rate =" + str(learning_rate))
+    plt.show()
+
+    # Convert parameters to numpy for compatibility
+    parameters_numpy = {}
+    for key in parameters:
+        parameters_numpy[key] = parameters[key].detach().numpy()
+
+    print ("Parameters have been trained!")
+
+    # Calculate the correct predictions
+    with torch.no_grad():
+        X_train_tensor = torch.from_numpy(X_train).float()
+        Y_train_tensor = torch.from_numpy(Y_train).float()
+        X_test_tensor = torch.from_numpy(X_test).float()
+        Y_test_tensor = torch.from_numpy(Y_test).float()
+
+        train_predictions = forward_propagation(X_train_tensor, parameters)
+        test_predictions = forward_propagation(X_test_tensor, parameters)
+
+        train_correct = (torch.argmax(train_predictions, dim=0) == torch.argmax(Y_train_tensor, dim=0)).float()
+        test_correct = (torch.argmax(test_predictions, dim=0) == torch.argmax(Y_test_tensor, dim=0)).float()
+
+        train_accuracy = torch.mean(train_correct)
+        test_accuracy = torch.mean(test_correct)
+
+    print ("Train Accuracy:", train_accuracy.item())
+    print ("Test Accuracy:", test_accuracy.item())
+
+    return parameters_numpy

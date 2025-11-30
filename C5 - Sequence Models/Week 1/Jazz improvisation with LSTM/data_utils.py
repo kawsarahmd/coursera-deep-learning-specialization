@@ -1,12 +1,24 @@
-from music_utils import * 
-from preprocess import * 
-from tensorflow.keras.utils import to_categorical
+from music_utils import *
+from preprocess import *
+import torch
+import torch.nn.functional as F
 
 from collections import defaultdict
 from mido import MidiFile
 from pydub import AudioSegment
 from pydub.generators import Sine
 import math
+
+
+def to_categorical(y, num_classes):
+    """
+    PyTorch equivalent of Keras to_categorical
+    Converts a class vector (integers) to binary class matrix.
+    """
+    if isinstance(y, torch.Tensor):
+        y = y.cpu().numpy()
+    return np.eye(num_classes)[y.reshape(-1)]
+
 
 #chords, abstract_grammars = get_musical_data('data/original_metheny.mid')
 #corpus, tones, tones_indices, indices_tones = get_corpus_data(abstract_grammars)

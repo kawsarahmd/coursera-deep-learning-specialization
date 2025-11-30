@@ -2,7 +2,7 @@ import colorsys
 import imghdr
 import os
 import random
-from keras import backend as K
+import torch
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -30,12 +30,22 @@ def generate_colors(class_names):
     return colors
 
 def scale_boxes(boxes, image_shape):
-    """ Scales the predicted boxes in order to be drawable on the image"""
+    """Scales the predicted boxes in order to be drawable on the image"""
     height = image_shape[0]
     width = image_shape[1]
-    image_dims = K.stack([height, width, height, width])
-    image_dims = K.reshape(image_dims, [1, 4])
+
+    # Convert to tensors if not already
+    if isinstance(boxes, np.ndarray):
+        boxes = torch.from_numpy(boxes).float()
+
+    image_dims = torch.tensor([height, width, height, width], dtype=torch.float32)
+    image_dims = image_dims.reshape(1, 4)
     boxes = boxes * image_dims
+
+    # Convert back to numpy for compatibility with drawing functions
+    if isinstance(boxes, torch.Tensor):
+        boxes = boxes.cpu().numpy()
+
     return boxes
 
 def preprocess_image(img_path, model_image_size):
